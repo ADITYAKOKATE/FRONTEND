@@ -65,7 +65,7 @@ const LandingPage = () => {
             <Rocket className="w-7 h-7 text-white" />
           </div>
           <div>
-            <span className="text-3xl font-bold gradient-text">NASA BioExplorer</span>
+            <span className="text-3xl font-bold gradient-text">NASA StellarBioNexus</span>
             <p className="text-sm text-gray-400 -mt-1">Space Biology Research Platform</p>
           </div>
         </motion.div>
@@ -273,7 +273,7 @@ const LandingPage = () => {
       {/* Footer */}
       <footer className="relative z-10 px-6 py-8 border-t border-gray-800">
         <div className="max-w-6xl mx-auto text-center text-gray-400">
-          <p>&copy; 2024 NASA BioExplorer. Built for the future of space exploration.</p>
+          <p>&copy; 2025 NASA StellarBioNexus. Built for the future of space exploration.</p>
         </div>
       </footer>
     </div>

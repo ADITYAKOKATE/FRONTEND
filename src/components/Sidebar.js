@@ -125,7 +125,7 @@ const Sidebar = () => {
             </div>
             <div>
               <h1 className="text-xl font-bold text-white">NASA</h1>
-              <p className="text-xs text-gray-400">BioExplorer</p>
+              <p className="text-xs text-gray-400">StellarBioNexus</p>
             </div>
           </motion.div>
           

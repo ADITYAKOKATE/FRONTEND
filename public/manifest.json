@@ -1,6 +1,6 @@
 {
-  "short_name": "NASA BioExplorer",
-  "name": "NASA BioExplorer - Space Biology Research Dashboard",
+  "short_name": "NASA StellarBioNexus",
+  "name": "NASA StellarBioNexus - Space Biology Research Dashboard",
   "description": "AI-powered dashboard for exploring NASA's biology research papers from space experiments",
   "icons": [
     {

@@ -46,7 +46,7 @@ const Header = () => {
 
           {/* Center Section - Title */}
           <div className="flex items-center space-x-2 text-sm text-gray-400">
-            <span className="text-white font-semibold">NASA BioExplorer</span>
+            <span className="text-white font-semibold">NASA StellarBioNexus</span>
           </div>
 
           {/* Right Section - Language Selector */}

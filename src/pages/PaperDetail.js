@@ -90,7 +90,7 @@ const PaperDetail = () => {
               
               <div>
                 <h1 className="text-xl font-bold gradient-text">Paper Details</h1>
-                <p className="text-sm text-gray-400">NASA BioExplorer</p>
+                <p className="text-sm text-gray-400">NASA StellarBioNexus</p>
               </div>
             </div>
 

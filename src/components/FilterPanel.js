@@ -234,7 +234,7 @@ const FilterPanel = ({ filters, onFilterChange }) => {
                 <input
                   type="number"
                   min={filterOptions?.yearRange?.minYear || 2000}
-                  max={filterOptions?.yearRange?.maxYear || 2024}
+                  max={filterOptions?.yearRange?.maxYear || 2025}
                   value={filters.yearRange?.start || ''}
                   onChange={(e) => handleYearRangeChange('start', e.target.value)}
                   placeholder="Start year"
@@ -246,7 +246,7 @@ const FilterPanel = ({ filters, onFilterChange }) => {
                 <input
                   type="number"
                   min={filterOptions?.yearRange?.minYear || 2000}
-                  max={filterOptions?.yearRange?.maxYear || 2024}
+                  max={filterOptions?.yearRange?.maxYear || 2025}
                   value={filters.yearRange?.end || ''}
                   onChange={(e) => handleYearRangeChange('end', e.target.value)}
                   placeholder="End year"
@@ -255,7 +255,7 @@ const FilterPanel = ({ filters, onFilterChange }) => {
               </div>
             </div>
             <div className="text-xs text-gray-500">
-              Available range: {filterOptions?.yearRange?.minYear || 2000} - {filterOptions?.yearRange?.maxYear || 2024}
+              Available range: {filterOptions?.yearRange?.minYear || 2000} - {filterOptions?.yearRange?.maxYear || 2025}
             </div>
           </motion.div>
         )}
