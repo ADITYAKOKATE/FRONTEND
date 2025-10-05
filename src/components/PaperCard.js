@@ -8,7 +8,9 @@ import {
   Check,
   ChevronRight,
   Tag,
-  FileText
+  FileText,
+  Network,
+  Bot
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { formatAuthors, truncateText } from '../services/api';
@@ -27,14 +29,32 @@ const PaperCard = ({ paper, viewMode = 'grid', isSelected = false, onSelect }) =
     onSelect();
   };
 
+  const openDetailsUrl = (e) => {
+    e.stopPropagation();
+    if (paper?.url) {
+      window.open(paper.url, '_blank');
+    }
+  };
+
+  const openKnowledgeGraph = (e) => {
+    e.stopPropagation();
+    navigate('/knowledge-graph', { state: { paper } });
+  };
+
+  const askAIAboutPaper = (e) => {
+    e.stopPropagation();
+    const message = `Tell me about this paper: ${paper?.title || ''}`.trim();
+    window.dispatchEvent(new CustomEvent('open-space-chatbot', { detail: { message } }));
+  };
+
   if (viewMode === 'list') {
     return (
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        whileHover={{ y: -2 }}
-        className={`bg-space-800/30 backdrop-blur-sm rounded-2xl border border-gray-700/50 overflow-hidden hover:border-gray-600/50 transition-all duration-300 p-4 cursor-pointer ${
-          isSelected ? 'ring-2 ring-blue-500 bg-blue-900/20' : ''
+        whileHover={{ y: -4, scale: 1.002 }}
+        className={`group bg-gradient-to-b from-space-800/60 to-space-800/30 backdrop-blur-xl rounded-2xl border border-gray-700/60 overflow-hidden hover:border-gray-600/60 transition-all duration-300 p-5 cursor-pointer shadow-sm hover:shadow-xl ${
+          isSelected ? 'ring-2 ring-blue-500/60 bg-blue-900/10' : ''
         }`}
         onClick={handleCardClick}
       >
@@ -52,7 +72,7 @@ const PaperCard = ({ paper, viewMode = 'grid', isSelected = false, onSelect }) =
           </button>
 
           {/* Paper content */}
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 flex flex-col">
             <div className="flex items-start justify-between">
               <div className="flex-1">
                 <h3 className="text-lg font-semibold text-white mb-2 line-clamp-2">
@@ -94,7 +114,27 @@ const PaperCard = ({ paper, viewMode = 'grid', isSelected = false, onSelect }) =
                   </div>
 
                   <div className="flex items-center space-x-2">
-                    <ChevronRight className="w-4 h-4 text-gray-400" />
+                    <button
+                      onClick={openKnowledgeGraph}
+                      className="px-2 py-1 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg transition-colors flex items-center space-x-1 text-xs"
+                    >
+                      <Network className="w-3 h-3" />
+                      <span>Knowledge Graph</span>
+                    </button>
+                    <button
+                      onClick={askAIAboutPaper}
+                      className="px-2 py-1 bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 rounded-lg transition-colors flex items-center space-x-1 text-xs"
+                    >
+                      <Bot className="w-3 h-3" />
+                      <span>Ask AI</span>
+                    </button>
+                    <button
+                      onClick={openDetailsUrl}
+                      className="px-2 py-1 bg-gray-700/50 hover:bg-gray-600/50 text-gray-300 rounded-lg transition-colors flex items-center space-x-1 text-xs"
+                    >
+                      <span>View Details</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </button>
                   </div>
                 </div>
               </div>
@@ -109,9 +149,9 @@ const PaperCard = ({ paper, viewMode = 'grid', isSelected = false, onSelect }) =
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      whileHover={{ y: -5 }}
-      className={`bg-space-800/30 backdrop-blur-sm rounded-2xl border border-gray-700/50 overflow-hidden hover:border-gray-600/50 transition-all duration-300 p-6 cursor-pointer relative ${
-        isSelected ? 'ring-2 ring-blue-500 bg-blue-900/20' : ''
+      whileHover={{ y: -6, scale: 1.01 }}
+      className={`group bg-gradient-to-b from-space-800/60 to-space-800/30 backdrop-blur-xl rounded-2xl border border-gray-700/60 overflow-hidden hover:border-gray-600/60 transition-all duration-300 p-6 cursor-pointer relative shadow-sm hover:shadow-2xl h-full flex flex-col ${
+        isSelected ? 'ring-2 ring-blue-500/60 bg-blue-900/10' : ''
       }`}
       onClick={handleCardClick}
     >
@@ -130,7 +170,7 @@ const PaperCard = ({ paper, viewMode = 'grid', isSelected = false, onSelect }) =
       {/* Header */}
       <div className="mb-4">
         <div className="flex items-center justify-between mb-2">
-          <span className="px-2 py-1 bg-blue-600/20 text-blue-400 text-xs font-medium rounded">
+          <span className="px-2 py-1 bg-blue-600/20 text-blue-400 text-xs font-medium rounded shadow-sm">
             {paper.publication}
           </span>
           
@@ -166,7 +206,7 @@ const PaperCard = ({ paper, viewMode = 'grid', isSelected = false, onSelect }) =
           {paper.keywords?.slice(0, 4).map((keyword, index) => (
             <span
               key={index}
-              className="px-2 py-1 bg-gray-700/50 text-gray-300 text-xs rounded-full flex items-center space-x-1"
+              className="px-2 py-1 bg-gray-700/50 text-gray-300 text-xs rounded-full flex items-center space-x-1 shadow-sm"
             >
               <Tag className="w-3 h-3" />
               <span>{keyword}</span>
@@ -180,24 +220,40 @@ const PaperCard = ({ paper, viewMode = 'grid', isSelected = false, onSelect }) =
         </div>
       </div>
 
-      {/* Footer */}
-      <div className="flex items-center justify-between pt-4 border-t border-gray-700">
-        <div className="flex items-center space-x-2">
+      {/* Footer: 2x2 actions */}
+      <div className="mt-auto pt-4 border-t border-gray-700">
+        <div className="grid grid-cols-2 gap-2">
           <button
             onClick={(e) => {
               e.stopPropagation();
-              // Show summary modal or navigate to detail page
+              // Placeholder: could show a summary modal
             }}
-            className="px-3 py-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg transition-colors flex items-center space-x-2"
+            className="w-full px-3 py-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg transition-colors flex items-center justify-center space-x-2 shadow-sm"
           >
             <FileText className="w-4 h-4" />
             <span className="text-sm">Summary</span>
           </button>
-        </div>
-        
-        <div className="flex items-center space-x-1 text-blue-400 text-sm">
-          <span>View Details</span>
-          <ExternalLink className="w-3 h-3" />
+          <button
+            onClick={openKnowledgeGraph}
+            className="w-full px-3 py-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg transition-colors flex items-center justify-center space-x-2 shadow-sm"
+          >
+            <Network className="w-4 h-4" />
+            <span className="text-sm">Knowledge Graph</span>
+          </button>
+          <button
+            onClick={askAIAboutPaper}
+            className="w-full px-3 py-2 bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 rounded-lg transition-colors flex items-center justify-center space-x-2 shadow-sm"
+          >
+            <Bot className="w-4 h-4" />
+            <span className="text-sm">Ask AI</span>
+          </button>
+          <button
+            onClick={openDetailsUrl}
+            className="w-full px-3 py-2 bg-gray-700/50 hover:bg-gray-600/50 text-gray-300 rounded-lg transition-colors flex items-center justify-center space-x-2 shadow-sm"
+          >
+            <span className="text-sm">View Details</span>
+            <ExternalLink className="w-3 h-3" />
+          </button>
         </div>
       </div>
     </motion.div>

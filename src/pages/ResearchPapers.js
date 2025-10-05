@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useQuery } from 'react-query';
 import { 
@@ -36,60 +36,85 @@ const ResearchPapers = () => {
   const [sortOrder, setSortOrder] = useState('desc');
   const [selectedKeywords, setSelectedKeywords] = useState([]);
 
-  const papersPerPage = 20;
+  const batchSize = 10;
 
-  // Fetch all papers from backend
-  const { data: papersResponse, isLoading: papersLoading, error } = useQuery(
-    'research-papers',
-    () => papersAPI.getPapers(),
-    {
-      staleTime: 10 * 60 * 1000, // 10 minutes
-      retry: 3,
-    }
-  );
+  // Local state to accumulate loaded papers
+  const [loadedPapers, setLoadedPapers] = useState([]);
+  const [offset, setOffset] = useState(0);
+  const [isLoadingInitial, setIsLoadingInitial] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [loadError, setLoadError] = useState(null);
+  const [hasMore, setHasMore] = useState(true);
 
-  // Extract papers from response
-  const allPapers = papersResponse?.data?.cards || [];
+  // Initial load (first 10)
+  useEffect(() => {
+    let isMounted = true;
+    setIsLoadingInitial(true);
+    papersAPI
+      .getPapers(0)
+      .then((res) => {
+        if (!isMounted) return;
+        const cards = res?.data?.cards || [];
+        setLoadedPapers(cards);
+        setOffset(cards.length);
+        setHasMore(cards.length === batchSize);
+        setLoadError(null);
+      })
+      .catch((e) => {
+        if (!isMounted) return;
+        setLoadError(e);
+      })
+      .finally(() => {
+        if (!isMounted) return;
+        setIsLoadingInitial(false);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleLoadMore = () => {
+    if (isLoadingMore || !hasMore) return;
+    setIsLoadingMore(true);
+    papersAPI
+      .getPapers(offset)
+      .then((res) => {
+        const next = res?.data?.cards || [];
+        setLoadedPapers((prev) => [...prev, ...next]);
+        const newOffset = offset + next.length;
+        setOffset(newOffset);
+        setHasMore(next.length === batchSize);
+      })
+      .catch((e) => setLoadError(e))
+      .finally(() => setIsLoadingMore(false));
+  };
   
   // Filter papers based on search query
   const filteredPapers = React.useMemo(() => {
-    if (!searchQuery.trim()) return allPapers;
+    if (!searchQuery.trim()) return loadedPapers;
     
     const query = searchQuery.toLowerCase();
-    return allPapers.filter(paper => 
+    return loadedPapers.filter(paper => 
       paper.title?.toLowerCase().includes(query) ||
       paper.summary?.toLowerCase().includes(query) ||
       paper.authors?.some(author => author.toLowerCase().includes(query)) ||
       paper.keywords?.some(keyword => keyword.toLowerCase().includes(query)) ||
       paper.publication?.toLowerCase().includes(query)
     );
-  }, [allPapers, searchQuery]);
+  }, [loadedPapers, searchQuery]);
 
-  // Paginate filtered papers
-  const paginatedPapers = React.useMemo(() => {
-    const startIndex = (currentPage - 1) * papersPerPage;
-    return filteredPapers.slice(startIndex, startIndex + papersPerPage);
-  }, [filteredPapers, currentPage, papersPerPage]);
-
-  // Calculate pagination info
-  const pagination = React.useMemo(() => {
-    const totalPages = Math.ceil(filteredPapers.length / papersPerPage);
-    return {
-      current: currentPage,
-      pages: totalPages,
-      total: filteredPapers.length
-    };
-  }, [filteredPapers.length, currentPage, papersPerPage]);
+  // Visible papers are simply the filtered subset of what we've loaded
+  const visiblePapers = filteredPapers;
 
   // Get all unique keywords
   const allKeywords = React.useMemo(() => {
-    if (!allPapers) return [];
+    if (!loadedPapers) return [];
     const keywords = new Set();
-    allPapers.forEach(paper => {
+    loadedPapers.forEach(paper => {
       paper.keywords?.forEach(keyword => keywords.add(keyword));
     });
     return Array.from(keywords).sort();
-  }, [allPapers]);
+  }, [loadedPapers]);
 
   const handleSearch = (query) => {
     setSearchQuery(query);
@@ -139,7 +164,7 @@ const ResearchPapers = () => {
                 {t('researchPapers')}
               </h1>
               <p className="text-xl text-gray-300 max-w-3xl">
-                Explore {allPapers.length} research papers with detailed summaries, knowledge graphs, and direct access to publications
+                Explore {loadedPapers.length} research papers with detailed summaries, knowledge graphs, and direct access to publications
               </p>
             </motion.div>
 
@@ -251,24 +276,24 @@ const ResearchPapers = () => {
               transition={{ delay: 0.3 }}
               className="space-y-6"
             >
-              {papersLoading ? (
+              {isLoadingInitial ? (
                 <div className="flex justify-center py-12">
                   <LoadingSpinner />
                 </div>
-              ) : error ? (
+              ) : loadError ? (
                 <div className="text-center py-12">
                   <FileText className="w-16 h-16 text-red-400 mx-auto mb-4" />
                   <h3 className="text-xl font-semibold text-red-400 mb-2">Error Loading Papers</h3>
                   <p className="text-gray-400">Failed to load research papers. Please check if the backend is running.</p>
                 </div>
-              ) : paginatedPapers?.length > 0 ? (
+              ) : visiblePapers?.length > 0 ? (
                 <>
                   <div className={`grid gap-6 ${
                     viewMode === 'grid' 
                       ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3' 
                       : 'grid-cols-1'
                   }`}>
-                    {paginatedPapers.map((paper, index) => (
+                    {visiblePapers.map((paper, index) => (
                       <PaperCard
                         key={`${paper.title}-${index}`}
                         paper={paper}
@@ -276,33 +301,28 @@ const ResearchPapers = () => {
                       />
                     ))}
                   </div>
-
-                  {/* Pagination */}
-                  {pagination.pages > 1 && (
-                    <div className="flex justify-center space-x-2 mt-8">
+                  {/* Load More */}
+                  <div className="flex justify-center mt-8">
+                    {hasMore ? (
                       <button
-                        onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                        disabled={currentPage === 1}
-                        className="px-4 py-2 bg-space-700/50 hover:bg-space-600/50 text-gray-300 rounded-lg transition-colors disabled:opacity-50 flex items-center space-x-2"
+                        onClick={handleLoadMore}
+                        disabled={isLoadingMore}
+                        className="px-6 py-3 bg-space-700/50 hover:bg-space-600/50 text-gray-200 rounded-lg transition-colors disabled:opacity-50 flex items-center space-x-2"
                       >
-                        <ChevronLeft className="w-4 h-4" />
-                        <span>Previous</span>
+                        {isLoadingMore ? (
+                          <>
+                            <span>Loading...</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>Load more</span>
+                          </>
+                        )}
                       </button>
-                      
-                      <span className="flex items-center px-4 py-2 text-gray-400">
-                        Page {currentPage} of {pagination.pages}
-                      </span>
-                      
-                      <button
-                        onClick={() => setCurrentPage(prev => Math.min(pagination.pages, prev + 1))}
-                        disabled={currentPage === pagination.pages}
-                        className="px-4 py-2 bg-space-700/50 hover:bg-space-600/50 text-gray-300 rounded-lg transition-colors disabled:opacity-50 flex items-center space-x-2"
-                      >
-                        <span>Next</span>
-                        <ChevronRight className="w-4 h-4" />
-                      </button>
-                    </div>
-                  )}
+                    ) : (
+                      <span className="text-gray-500">No more papers</span>
+                    )}
+                  </div>
                 </>
               ) : (
                 <div className="text-center py-12">

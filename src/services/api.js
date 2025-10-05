@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8081';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080';
 
 // Create axios instance
 const api = axios.create({
@@ -36,7 +36,7 @@ api.interceptors.response.use(
 // API endpoints
 export const papersAPI = {
   // Get research paper cards from backend
-  getPapers: (params = {}) => api.get('/researchpapers/getcards'),
+  getPapers: (offset = 0) => api.get(`/researchpapers/getcards/${offset}`),
   
   // Search papers (using the same endpoint for now)
   searchPapers: (params = {}) => api.get('/researchpapers/getcards'),

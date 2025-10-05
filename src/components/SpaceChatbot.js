@@ -65,6 +65,20 @@ const SpaceChatbot = () => {
     }
   }, [isOpen]);
 
+  // Listen for external open events with an optional seeded message
+  useEffect(() => {
+    const handler = (e) => {
+      setIsOpen(true);
+      setIsMinimized(false);
+      const seed = e?.detail?.message;
+      if (seed) {
+        setInputValue(seed);
+      }
+    };
+    window.addEventListener('open-space-chatbot', handler);
+    return () => window.removeEventListener('open-space-chatbot', handler);
+  }, []);
+
   const getBotResponse = (userMessage) => {
     const lowerMessage = userMessage.toLowerCase();
     
