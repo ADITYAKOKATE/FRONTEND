@@ -15,19 +15,10 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { formatAuthors, truncateText } from '../services/api';
 
-const PaperCard = ({ paper, viewMode = 'grid', isSelected = false, onSelect }) => {
+const PaperCard = ({ paper, viewMode = 'grid', onOpenKnowledgeGraph }) => {
   const navigate = useNavigate();
 
-  const handleCardClick = () => {
-    // For now, we'll use the title as a simple identifier
-    // In the future, you might want to add an ID field to the backend
-    navigate(`/paper/${encodeURIComponent(paper.title)}`);
-  };
-
-  const handleSelectClick = (e) => {
-    e.stopPropagation();
-    onSelect();
-  };
+  const handleCardClick = () => {};
 
   const openDetailsUrl = (e) => {
     e.stopPropagation();
@@ -38,6 +29,10 @@ const PaperCard = ({ paper, viewMode = 'grid', isSelected = false, onSelect }) =
 
   const openKnowledgeGraph = (e) => {
     e.stopPropagation();
+    if (onOpenKnowledgeGraph) {
+      onOpenKnowledgeGraph(paper);
+      return;
+    }
     navigate('/knowledge-graph', { state: { paper } });
   };
 
@@ -47,30 +42,33 @@ const PaperCard = ({ paper, viewMode = 'grid', isSelected = false, onSelect }) =
     window.dispatchEvent(new CustomEvent('open-space-chatbot', { detail: { message } }));
   };
 
+  const getYear = (p) => {
+    if (!p) return '';
+    if (p.year) return p.year;
+    if (p.publicationDate) {
+      const d = new Date(p.publicationDate);
+      const y = d.getFullYear();
+      return Number.isNaN(y) ? '' : y;
+    }
+    if (p.date) {
+      const d = new Date(p.date);
+      const y = d.getFullYear();
+      return Number.isNaN(y) ? '' : y;
+    }
+    if (p.publication_year) return p.publication_year;
+    if (p.pub_year) return p.pub_year;
+    return '';
+  };
+
   if (viewMode === 'list') {
     return (
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         whileHover={{ y: -4, scale: 1.002 }}
-        className={`group bg-gradient-to-b from-space-800/60 to-space-800/30 backdrop-blur-xl rounded-2xl border border-gray-700/60 overflow-hidden hover:border-gray-600/60 transition-all duration-300 p-5 cursor-pointer shadow-sm hover:shadow-xl ${
-          isSelected ? 'ring-2 ring-blue-500/60 bg-blue-900/10' : ''
-        }`}
-        onClick={handleCardClick}
+        className="group bg-gradient-to-b from-space-800/60 to-space-800/30 backdrop-blur-xl rounded-2xl border border-gray-700/60 overflow-hidden hover:border-gray-600/60 transition-all duration-300 p-5 shadow-sm hover:shadow-xl"
       >
         <div className="flex items-start space-x-4">
-          {/* Selection checkbox */}
-          <button
-            onClick={handleSelectClick}
-            className={`mt-1 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
-              isSelected 
-                ? 'bg-blue-600 border-blue-600 text-white' 
-                : 'border-gray-600 hover:border-blue-500'
-            }`}
-          >
-            {isSelected && <Check className="w-3 h-3" />}
-          </button>
-
           {/* Paper content */}
           <div className="flex-1 min-w-0 flex flex-col">
             <div className="flex items-start justify-between">
@@ -87,7 +85,7 @@ const PaperCard = ({ paper, viewMode = 'grid', isSelected = false, onSelect }) =
                   
                   <div className="flex items-center space-x-1">
                     <Calendar className="w-4 h-4" />
-                    <span>{paper.year}</span>
+                    <span>{getYear(paper)}</span>
                   </div>
                   
                   <div className="flex items-center space-x-1">
@@ -150,23 +148,8 @@ const PaperCard = ({ paper, viewMode = 'grid', isSelected = false, onSelect }) =
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       whileHover={{ y: -6, scale: 1.01 }}
-      className={`group bg-gradient-to-b from-space-800/60 to-space-800/30 backdrop-blur-xl rounded-2xl border border-gray-700/60 overflow-hidden hover:border-gray-600/60 transition-all duration-300 p-6 cursor-pointer relative shadow-sm hover:shadow-2xl h-full flex flex-col ${
-        isSelected ? 'ring-2 ring-blue-500/60 bg-blue-900/10' : ''
-      }`}
-      onClick={handleCardClick}
+      className="group bg-gradient-to-b from-space-800/60 to-space-800/30 backdrop-blur-xl rounded-2xl border border-gray-700/60 overflow-hidden hover:border-gray-600/60 transition-all duration-300 p-6 relative shadow-sm hover:shadow-2xl h-full flex flex-col"
     >
-      {/* Selection checkbox */}
-      <button
-        onClick={handleSelectClick}
-        className={`absolute top-4 right-4 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors z-10 ${
-          isSelected 
-            ? 'bg-blue-600 border-blue-600 text-white' 
-            : 'border-gray-600 hover:border-blue-500'
-        }`}
-      >
-        {isSelected && <Check className="w-3 h-3" />}
-      </button>
-
       {/* Header */}
       <div className="mb-4">
         <div className="flex items-center justify-between mb-2">
@@ -176,7 +159,7 @@ const PaperCard = ({ paper, viewMode = 'grid', isSelected = false, onSelect }) =
           
           <div className="flex items-center space-x-1 text-gray-400">
             <Calendar className="w-4 h-4" />
-            <span className="text-sm font-medium">{paper.year}</span>
+            <span className="text-sm font-medium">{getYear(paper)}</span>
           </div>
         </div>
         

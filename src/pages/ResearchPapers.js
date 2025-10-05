@@ -18,12 +18,14 @@ import {
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
-import { papersAPI } from '../services/api';
+import { papersAPI, searchAPI } from '../services/api';
 import Sidebar from '../components/Sidebar';
 import Header from '../components/Header';
 import LoadingSpinner from '../components/LoadingSpinner';
 import PaperCard from '../components/PaperCard';
 import { useLanguage } from '../contexts/LanguageContext';
+import * as d3 from 'd3';
+import { insightsAPI } from '../services/api';
 
 const ResearchPapers = () => {
   const { t } = useLanguage();
@@ -35,6 +37,8 @@ const ResearchPapers = () => {
   const [sortBy, setSortBy] = useState('publicationDate');
   const [sortOrder, setSortOrder] = useState('desc');
   const [selectedKeywords, setSelectedKeywords] = useState([]);
+  const [searchResults, setSearchResults] = useState(null);
+  const [isSearching, setIsSearching] = useState(false);
 
   const batchSize = 10;
 
@@ -45,6 +49,11 @@ const ResearchPapers = () => {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [loadError, setLoadError] = useState(null);
   const [hasMore, setHasMore] = useState(true);
+  const [graphModalOpen, setGraphModalOpen] = useState(false);
+  const [graphPaper, setGraphPaper] = useState(null);
+  const [graphData, setGraphData] = useState({ nodes: [], links: [] });
+  const [graphLoading, setGraphLoading] = useState(false);
+  const svgRef = React.useRef();
 
   // Initial load (first 10)
   useEffect(() => {
@@ -88,6 +97,74 @@ const ResearchPapers = () => {
       .catch((e) => setLoadError(e))
       .finally(() => setIsLoadingMore(false));
   };
+
+  const openKnowledgeGraphModal = async (paper) => {
+    setGraphPaper(paper);
+    setGraphModalOpen(true);
+    setGraphLoading(true);
+    try {
+      const res = await insightsAPI.getPaperKnowledgeGraph(paper.paper_id);
+      const dto = res.data || {};
+      const centerId = `paper-${paper.paper_id}`;
+      const nodes = [
+        { id: centerId, type: 'paper', label: dto.title || paper.title, size: 18, color: '#3B82F6', url: dto.url || paper.url }
+      ];
+      const links = [];
+      if (dto.publication) {
+        nodes.push({ id: `pub-${dto.publication}`, type: 'publication', label: dto.publication, size: 12, color: '#10B981' });
+        links.push({ source: centerId, target: `pub-${dto.publication}`, type: 'published_in', strength: 1 });
+      }
+      if (dto.researchArea) {
+        nodes.push({ id: `area-${dto.researchArea}`, type: 'researchArea', label: dto.researchArea, size: 12, color: '#F59E0B' });
+        links.push({ source: centerId, target: `area-${dto.researchArea}`, type: 'research_area', strength: 1 });
+      }
+      (dto.keywords || []).forEach((kw) => {
+        const kid = `kw-${kw}`;
+        nodes.push({ id: kid, type: 'keyword', label: kw, size: 10, color: '#8B5CF6' });
+        links.push({ source: centerId, target: kid, type: 'has_keyword', strength: 1 });
+      });
+      setGraphData({ nodes, links });
+    } catch (e) {
+      setGraphData({ nodes: [], links: [] });
+    } finally {
+      setGraphLoading(false);
+    }
+  };
+
+  // Render D3 graph inside modal
+  useEffect(() => {
+    if (!graphModalOpen || graphLoading || !graphData.nodes.length) return;
+    const svg = d3.select(svgRef.current);
+    svg.selectAll('*').remove();
+    const width = 800;
+    const height = 500;
+    const g = svg.append('g');
+    const zoom = d3.zoom().scaleExtent([0.1, 4]).on('zoom', (event) => g.attr('transform', event.transform));
+    svg.call(zoom);
+    const simulation = d3.forceSimulation(graphData.nodes)
+      .force('link', d3.forceLink(graphData.links).id(d => d.id).distance(100).strength(0.5))
+      .force('charge', d3.forceManyBody().strength(-300))
+      .force('center', d3.forceCenter(width / 2, height / 2))
+      .force('collision', d3.forceCollide().radius(d => d.size + 6));
+    const link = g.append('g').selectAll('line').data(graphData.links).enter().append('line').attr('stroke', '#4B5563').attr('stroke-opacity', 0.6).attr('stroke-width', d => Math.sqrt(d.strength || 1) * 2);
+    const node = g.append('g').selectAll('circle').data(graphData.nodes).enter().append('circle')
+      .attr('r', d => d.size).attr('fill', d => d.color).attr('stroke', '#fff').attr('stroke-width', 2).style('cursor', 'pointer')
+      .call(d3.drag().on('start', dragstarted).on('drag', dragged).on('end', dragended))
+      .on('click', (event, d) => {
+        if (d.type === 'paper' && d.url) window.open(d.url, '_blank');
+      });
+    const labels = g.append('g').selectAll('text').data(graphData.nodes).enter().append('text')
+      .text(d => d.label).attr('font-size', '12px').attr('fill', '#fff').attr('text-anchor', 'middle').attr('dy', d => d.size + 14).style('pointer-events', 'none');
+    simulation.on('tick', () => {
+      link.attr('x1', d => d.source.x).attr('y1', d => d.source.y).attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+      node.attr('cx', d => d.x).attr('cy', d => d.y);
+      labels.attr('x', d => d.x).attr('y', d => d.y);
+    });
+    function dragstarted(event, d) { if (!event.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; }
+    function dragged(event, d) { d.fx = event.x; d.fy = event.y; }
+    function dragended(event, d) { if (!event.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; }
+    return () => simulation.stop();
+  }, [graphModalOpen, graphLoading, graphData]);
   
   // Filter papers based on search query
   const filteredPapers = React.useMemo(() => {
@@ -103,8 +180,8 @@ const ResearchPapers = () => {
     );
   }, [loadedPapers, searchQuery]);
 
-  // Visible papers are simply the filtered subset of what we've loaded
-  const visiblePapers = filteredPapers;
+  // Visible papers use search results when present
+  const visiblePapers = searchResults ? searchResults : filteredPapers;
 
   // Get all unique keywords
   const allKeywords = React.useMemo(() => {
@@ -119,6 +196,26 @@ const ResearchPapers = () => {
   const handleSearch = (query) => {
     setSearchQuery(query);
     setCurrentPage(1);
+    if (!query || !query.trim()) {
+      setSearchResults(null);
+      return;
+    }
+    setIsSearching(true);
+    searchAPI.getSimilar(query.trim())
+      .then((res) => {
+        const list = res?.data || [];
+        const ids = list.map(row => Array.isArray(row) ? row[0] : row?.paper_id).filter(id => id !== undefined && id !== null);
+        if (ids.length === 0) {
+          setSearchResults([]);
+          return;
+        }
+        const first = ids.slice(0, 20);
+        return Promise.all(first.map((id) => searchAPI.getPaperCard(id).then(r => r.data))).then((cards) => {
+          setSearchResults(cards);
+        });
+      })
+      .catch(() => setSearchResults([]))
+      .finally(() => setIsSearching(false));
   };
 
   const handleKeywordToggle = (keyword) => {
@@ -142,6 +239,7 @@ const ResearchPapers = () => {
 
 
   return (
+    <>
     <div className="min-h-screen bg-space-900 flex">
       {/* Sidebar */}
       <Sidebar />
@@ -286,6 +384,30 @@ const ResearchPapers = () => {
                   <h3 className="text-xl font-semibold text-red-400 mb-2">Error Loading Papers</h3>
                   <p className="text-gray-400">Failed to load research papers. Please check if the backend is running.</p>
                 </div>
+              ) : searchResults !== null ? (
+                isSearching ? (
+                  <div className="flex justify-center py-12"><LoadingSpinner /></div>
+                ) : (
+                  <>
+                    <div className={`grid gap-6 ${
+                      viewMode === 'grid' 
+                        ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3' 
+                        : 'grid-cols-1'
+                    }`}>
+                      {visiblePapers.map((paper, index) => (
+                        <PaperCard
+                          key={`${paper.title}-${index}`}
+                          paper={paper}
+                          viewMode={viewMode}
+                          onOpenKnowledgeGraph={openKnowledgeGraphModal}
+                        />
+                      ))}
+                    </div>
+                    {visiblePapers.length === 0 && (
+                      <div className="text-center py-12 text-gray-400">No results</div>
+                    )}
+                  </>
+                )
               ) : visiblePapers?.length > 0 ? (
                 <>
                   <div className={`grid gap-6 ${
@@ -298,6 +420,7 @@ const ResearchPapers = () => {
                         key={`${paper.title}-${index}`}
                         paper={paper}
                         viewMode={viewMode}
+                        onOpenKnowledgeGraph={openKnowledgeGraphModal}
                       />
                     ))}
                   </div>
@@ -336,6 +459,34 @@ const ResearchPapers = () => {
         </main>
       </div>
     </div>
+    {graphModalOpen && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center">
+        <div className="absolute inset-0 bg-black/70" onClick={() => setGraphModalOpen(false)} />
+        <div className="relative bg-space-900 border border-gray-700 rounded-2xl w-11/12 max-w-5xl p-6 shadow-2xl">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xl font-semibold text-white">Knowledge Graph</h3>
+            <button onClick={() => setGraphModalOpen(false)} className="px-3 py-1 bg-gray-700/60 hover:bg-gray-600/60 rounded-lg text-gray-200">Close</button>
+          </div>
+          {graphLoading ? (
+            <div className="flex justify-center py-12"><LoadingSpinner /></div>
+          ) : (
+            <div>
+              <div className="mb-4 text-sm text-gray-400">
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-blue-500 inline-block" /> <span>Paper Title</span></div>
+                  <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-green-500 inline-block" /> <span>Publication</span></div>
+                  <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-yellow-500 inline-block" /> <span>Research Area</span></div>
+                  <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-purple-500 inline-block" /> <span>Keywords</span></div>
+                </div>
+              </div>
+              <svg ref={svgRef} width="100%" height="500" className="border border-gray-700 rounded-lg" />
+              <div className="mt-3 text-xs text-gray-400">Click the title node to open the paper link.</div>
+            </div>
+          )}
+        </div>
+      </div>
+    )}
+    </>
   );
 };
 

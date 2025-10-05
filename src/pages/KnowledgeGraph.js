@@ -19,12 +19,19 @@ import Sidebar from '../components/Sidebar';
 import Header from '../components/Header';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useLocation } from 'react-router-dom';
 
 const KnowledgeGraph = () => {
   const { t } = useLanguage();
+  const location = useLocation();
+  const paperFromState = location.state?.paper;
   const svgRef = useRef();
+  const pendingFocusNodeIdRef = useRef(null);
   const [zoomLevel, setZoomLevel] = useState(1);
   const [selectedNode, setSelectedNode] = useState(null);
+  const [expandedAuthors, setExpandedAuthors] = useState(new Set());
+  const [expandedPublications, setExpandedPublications] = useState(new Set());
+  const [activeCategory, setActiveCategory] = useState('authors'); // authors | publications | researchareas
   const [showSettings, setShowSettings] = useState(false);
   const [graphSettings, setGraphSettings] = useState({
     showLabels: true,
@@ -33,12 +40,40 @@ const KnowledgeGraph = () => {
     connectionStrength: 'medium'
   });
 
-  // Fetch knowledge graph data
+  const toSafeId = (prefix, value) => {
+    const base = String(value || '').toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_\-]/g, '');
+    return `${prefix}-${base || 'unknown'}`;
+  };
+
+  // Fetch knowledge graph data (global)
   const { data: graphData, isLoading: graphLoading } = useQuery(
-    'knowledge-graph',
-    insightsAPI.getKnowledgeGraph,
+    ['knowledge-graph', activeCategory],
+    () => {
+      if (activeCategory === 'authors') {
+        return insightsAPI.getAuthorsKnowledgeGraph();
+      }
+      if (activeCategory === 'publications') {
+        return insightsAPI.getPublicationsKnowledgeGraph();
+      }
+      if (activeCategory === 'researchareas') {
+        return insightsAPI.getResearchAreasKnowledge();
+      }
+      // default/global graph
+      return insightsAPI.getKnowledgeGraph();
+    },
     {
-      staleTime: 10 * 60 * 1000, // 10 minutes
+      enabled: !paperFromState,
+      staleTime: 10 * 60 * 1000,
+    }
+  );
+
+  // Fetch per-paper knowledge graph when a paper is provided
+  const { data: paperGraphData, isLoading: paperGraphLoading } = useQuery(
+    ['paper-knowledge-graph', paperFromState?.paper_id],
+    () => insightsAPI.getPaperKnowledgeGraph(paperFromState.paper_id),
+    {
+      enabled: Boolean(paperFromState?.paper_id),
+      staleTime: 5 * 60 * 1000,
     }
   );
 
@@ -51,18 +86,152 @@ const KnowledgeGraph = () => {
     }
   );
 
-  // Generate graph data if not available from API
+  // Generate graph data either for a specific paper or global
   const processedGraphData = React.useMemo(() => {
-    if (graphData) return graphData;
+    // Per-paper mode
+    if (paperFromState) {
+      const dto = paperGraphData?.data; // axios response
+      if (!dto) return { nodes: [], links: [] };
 
+      const centerId = `paper-${paperFromState.paper_id}`;
+      const nodes = [
+        {
+          id: centerId,
+          type: 'paper',
+          label: dto.title || paperFromState.title,
+          size: 18,
+          color: '#3B82F6',
+          url: dto.url || paperFromState.url,
+        }
+      ];
+      const links = [];
+
+      // Publication node
+      if (dto.publication) {
+        nodes.push({ id: `pub-${dto.publication}`, type: 'publication', label: dto.publication, size: 12, color: '#10B981' });
+        links.push({ source: centerId, target: `pub-${dto.publication}`, type: 'published_in', strength: 1 });
+      }
+
+      // Research area node
+      if (dto.researchArea) {
+        nodes.push({ id: `area-${dto.researchArea}`, type: 'researchArea', label: dto.researchArea, size: 12, color: '#F59E0B' });
+        links.push({ source: centerId, target: `area-${dto.researchArea}`, type: 'research_area', strength: 1 });
+      }
+
+      // Keyword nodes
+      (dto.keywords || []).forEach((kw) => {
+        const kid = `kw-${kw}`;
+        nodes.push({ id: kid, type: 'keyword', label: kw, size: 10, color: '#8B5CF6' });
+        links.push({ source: centerId, target: kid, type: 'has_keyword', strength: 1 });
+      });
+
+      return { nodes, links };
+    }
+
+    // Authors mode graph (authors with their papers)
+    if (activeCategory === 'authors') {
+      const list = graphData?.data || [];
+      if (!Array.isArray(list)) return { nodes: [], links: [] };
+
+      const centerId = 'authors-center';
+      const nodes = [
+        { id: centerId, type: 'authorsCenter', label: 'Authors', size: 20, color: '#22c55e' }
+      ];
+      const links = [];
+
+      list.forEach((entry, idx) => {
+        const authorName = entry.author || entry.name || `Author ${idx + 1}`;
+        const authorId = `author-${authorName}`;
+        nodes.push({ id: authorId, type: 'author', label: authorName, size: 14, color: '#0ea5e9' });
+        links.push({ source: centerId, target: authorId, type: 'author', strength: 1 });
+
+        // Only add papers if this author is expanded
+        if (expandedAuthors.has(authorId)) {
+          (entry.papers || []).forEach((p, i) => {
+            const pid = p.paper_id || p.id || `${idx}-${i}`;
+            const paperId = `paper-${pid}`;
+            nodes.push({ id: paperId, type: 'paper', label: p.title, size: 10, color: '#8b5cf6', url: p.url });
+            links.push({ source: authorId, target: paperId, type: 'wrote', strength: 1 });
+          });
+        }
+      });
+
+      return { nodes, links };
+    }
+
+    // Publications mode graph (publication center -> publication -> papers)
+    if (activeCategory === 'publications') {
+      const list = graphData?.data || [];
+      if (!Array.isArray(list)) return { nodes: [], links: [] };
+
+      const centerId = 'publications-center';
+      const nodes = [
+        { id: centerId, type: 'publicationsCenter', label: 'Publications', size: 20, color: '#10b981' }
+      ];
+      const links = [];
+
+      list.forEach((entry, idx) => {
+        const pubName = entry.publication || `Publication ${idx + 1}`;
+        const pubId = toSafeId('pub', pubName);
+        nodes.push({ id: pubId, type: 'publication', label: pubName, size: 14, color: '#22d3ee' });
+        links.push({ source: centerId, target: pubId, type: 'publication', strength: 1 });
+
+        if (expandedPublications.has(pubId)) {
+          (entry.papers || []).forEach((p, i) => {
+            const pid = p.paper_id || p.id || `${idx}-${i}`;
+            const paperId = toSafeId('paper', pid);
+            nodes.push({ id: paperId, type: 'paper', label: p.title, size: 10, color: '#8b5cf6', url: p.url });
+            links.push({ source: pubId, target: paperId, type: 'published', strength: 1 });
+          });
+        }
+      });
+
+      return { nodes, links };
+    }
+
+    // Research areas mode graph (research area center -> area -> count; size scales by count)
+    if (activeCategory === 'researchareas') {
+      const list = graphData?.data || [];
+      if (!Array.isArray(list)) return { nodes: [], links: [] };
+
+      const centerId = 'researchareas-center';
+      const nodes = [
+        { id: centerId, type: 'researchAreasCenter', label: 'Research Areas', size: 20, color: '#f59e0b' }
+      ];
+      const links = [];
+
+      // Endpoint returns List<Object[]> with [researchArea, count]
+      const parsed = list.map((tuple, idx) => {
+        if (Array.isArray(tuple)) {
+          return { name: String(tuple[0]), count: Number(tuple[1]) || 0 };
+        }
+        return { name: tuple.researchArea || `Area ${idx + 1}`, count: Number(tuple.count) || 0 };
+      });
+
+      const counts = parsed.map(p => Math.max(0, p.count || 0));
+      const extent = counts.length ? [Math.min(...counts), Math.max(...counts)] : [0, 1];
+      const sizeScale = extent[0] === extent[1]
+        ? () => 14
+        : d3.scaleSqrt().domain(extent).range([10, 40]);
+      const sizeFor = (c) => sizeScale(Math.max(0, c || 0));
+
+      parsed.forEach((p) => {
+        const areaId = `area-${p.name}`;
+        nodes.push({ id: areaId, type: 'researchArea', label: p.name, size: sizeFor(p.count), color: '#fde047' });
+        links.push({ source: centerId, target: areaId, type: 'area', strength: 1 });
+      });
+
+      return { nodes, links };
+    }
+
+    // Global fallback graph
+    if (graphData?.data) return graphData.data;
     if (!papersData?.papers) return { nodes: [], links: [] };
 
-    // Create nodes from papers
     const nodes = [];
     const nodeMap = new Map();
 
-    papersData.papers.forEach((paper, index) => {
-      // Paper node
+    papersData.papers.forEach((paper) => {
       const paperNode = {
         id: `paper-${paper._id}`,
         type: 'paper',
@@ -75,94 +244,48 @@ const KnowledgeGraph = () => {
       nodes.push(paperNode);
       nodeMap.set(paperNode.id, paperNode);
 
-      // Author nodes
-      paper.authors?.forEach(author => {
-        const authorId = `author-${author.name}`;
-        if (!nodeMap.has(authorId)) {
-          const authorNode = {
-            id: authorId,
-            type: 'author',
-            label: author.name,
-            affiliation: author.affiliation,
-            size: 8,
-            color: '#10B981'
-          };
-          nodes.push(authorNode);
-          nodeMap.set(authorId, authorNode);
-        }
-      });
-
-      // Research area nodes
       if (paper.researchArea) {
         const areaId = `area-${paper.researchArea}`;
         if (!nodeMap.has(areaId)) {
-          const areaNode = {
-            id: areaId,
-            type: 'researchArea',
-            label: paper.researchArea,
-            size: 12,
-            color: '#8B5CF6'
-          };
+          const areaNode = { id: areaId, type: 'researchArea', label: paper.researchArea, size: 12, color: '#8B5CF6' };
           nodes.push(areaNode);
           nodeMap.set(areaId, areaNode);
         }
       }
 
-      // Organism nodes
       if (paper.organism) {
         const organismId = `organism-${paper.organism}`;
         if (!nodeMap.has(organismId)) {
-          const organismNode = {
-            id: organismId,
-            type: 'organism',
-            label: paper.organism,
-            size: 10,
-            color: '#F59E0B'
-          };
+          const organismNode = { id: organismId, type: 'organism', label: paper.organism, size: 10, color: '#F59E0B' };
           nodes.push(organismNode);
           nodeMap.set(organismId, organismNode);
         }
       }
     });
 
-    // Create links
     const links = [];
-    papersData.papers.forEach(paper => {
+    papersData.papers.forEach((paper) => {
       const paperId = `paper-${paper._id}`;
-      
-      // Link paper to authors
-      paper.authors?.forEach(author => {
-        links.push({
-          source: paperId,
-          target: `author-${author.name}`,
-          type: 'authored',
-          strength: 1
-        });
-      });
-
-      // Link paper to research area
-      if (paper.researchArea) {
-        links.push({
-          source: paperId,
-          target: `area-${paper.researchArea}`,
-          type: 'belongsTo',
-          strength: 1
-        });
-      }
-
-      // Link paper to organism
-      if (paper.organism) {
-        links.push({
-          source: paperId,
-          target: `organism-${paper.organism}`,
-          type: 'studies',
-          strength: 1
-        });
-      }
+      if (paper.researchArea) links.push({ source: paperId, target: `area-${paper.researchArea}`, type: 'belongsTo', strength: 1 });
+      if (paper.organism) links.push({ source: paperId, target: `organism-${paper.organism}`, type: 'studies', strength: 1 });
     });
 
     return { nodes, links };
-  }, [graphData, papersData]);
+  }, [paperFromState, paperGraphData, graphData, papersData, activeCategory, expandedAuthors, expandedPublications]);
+
+  // Reset expanded authors when switching away from authors category
+  useEffect(() => {
+    if (activeCategory !== 'authors' && expandedAuthors.size > 0) {
+      setExpandedAuthors(new Set());
+    }
+  }, [activeCategory]);
+
+  // Reset expanded publications when switching away from publications category
+  useEffect(() => {
+    if (activeCategory !== 'publications' && expandedPublications.size > 0) {
+      setExpandedPublications(new Set());
+    }
+  }, [activeCategory]);
 
   // Initialize D3 force simulation
   useEffect(() => {
@@ -199,6 +322,49 @@ const KnowledgeGraph = () => {
       .force('center', d3.forceCenter(width / 2, height / 2))
       .force('collision', d3.forceCollide().radius(d => d.size + 5));
 
+    // Helper: focus and highlight a node and its immediate neighbors
+    function focusAndHighlight(targetNode) {
+      const connectedNodeIds = new Set([targetNode.id]);
+      const connectedLinks = new Set();
+      (processedGraphData.links || []).forEach(l => {
+        const s = typeof l.source === 'object' ? l.source.id : l.source;
+        const t = typeof l.target === 'object' ? l.target.id : l.target;
+        if (s === targetNode.id) {
+          connectedNodeIds.add(t);
+          connectedLinks.add(l);
+        } else if (t === targetNode.id) {
+          connectedNodeIds.add(s);
+          connectedLinks.add(l);
+        }
+      });
+
+      // Dim non-neighbors
+      node.style('opacity', n => connectedNodeIds.has(n.id) ? 1 : 0.15);
+      labels.style('opacity', n => connectedNodeIds.has(n.id) ? 1 : 0.15);
+      link.style('opacity', l => {
+        const s = typeof l.source === 'object' ? l.source.id : l.source;
+        const t = typeof l.target === 'object' ? l.target.id : l.target;
+        return (s === targetNode.id || t === targetNode.id) ? 1 : 0.15;
+      });
+
+      // Smooth zoom and center on node
+      const k = 2; // zoom factor
+      const tx = width / 2 - targetNode.x * k;
+      const ty = height / 2 - targetNode.y * k;
+      svg.transition().duration(500).call(
+        zoom.transform,
+        d3.zoomIdentity.translate(tx, ty).scale(k)
+      );
+    }
+
+    // Helper: reset highlight and zoom
+    function resetFocus() {
+      node.style('opacity', 1);
+      labels.style('opacity', 1);
+      link.style('opacity', 0.6);
+      svg.transition().duration(400).call(zoom.transform, d3.zoomIdentity);
+    }
+
     // Create links
     const link = g.append('g')
       .attr('class', 'links')
@@ -226,7 +392,47 @@ const KnowledgeGraph = () => {
         .on('end', dragended)
       )
       .on('click', (event, d) => {
+         event.stopPropagation();
         setSelectedNode(d);
+         if (d.type === 'paper' && d.url) {
+           window.open(d.url, '_blank');
+           return;
+         }
+         if (activeCategory === 'authors' && d.type === 'author') {
+           setExpandedAuthors(prev => {
+             const next = new Set(Array.from(prev));
+             if (next.has(d.id)) {
+               next.delete(d.id);
+             } else {
+               next.add(d.id);
+             }
+             return next;
+           });
+            pendingFocusNodeIdRef.current = d.id;
+            return;
+          }
+          if (activeCategory === 'publications' && d.type === 'publication') {
+          setExpandedPublications(prev => {
+            const next = new Set(Array.from(prev));
+            if (next.has(d.id)) {
+              next.delete(d.id);
+            } else {
+              next.add(d.id);
+            }
+            return next;
+          });
+            pendingFocusNodeIdRef.current = d.id;
+          } else {
+            // Generic focus for other node types
+            focusAndHighlight(d);
+          }
+       });
+
+    // Clicking on empty space resets focus
+    svg.on('click', (event) => {
+      if (event.target === svg.node()) {
+        resetFocus();
+      }
       });
 
     // Add labels
@@ -259,6 +465,16 @@ const KnowledgeGraph = () => {
         .attr('x', d => d.x)
         .attr('y', d => d.y);
     });
+
+    // After initial render, apply any pending focus (post re-render)
+    if (pendingFocusNodeIdRef.current) {
+      const target = (processedGraphData.nodes || []).find(n => n.id === pendingFocusNodeIdRef.current);
+      if (target) {
+        // Delay slightly to allow layout settle
+        setTimeout(() => focusAndHighlight(target), 50);
+      }
+      pendingFocusNodeIdRef.current = null;
+    }
 
     // Drag functions
     function dragstarted(event, d) {
@@ -333,6 +549,40 @@ const KnowledgeGraph = () => {
               <p className="text-xl text-gray-300 max-w-3xl">
                 Interactive visualization of research relationships, connections between papers, authors, and research areas
               </p>
+
+              {/* Category Buttons */}
+              <div className="flex items-center gap-3 mt-4">
+                <button
+                  onClick={() => setActiveCategory('authors')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${
+                    activeCategory === 'authors'
+                      ? 'bg-blue-600 text-white border-blue-500'
+                      : 'bg-space-800/50 text-gray-300 border-gray-700 hover:bg-space-700/50'
+                  }`}
+                >
+                  Authors
+                </button>
+                <button
+                  onClick={() => setActiveCategory('publications')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${
+                    activeCategory === 'publications'
+                      ? 'bg-blue-600 text-white border-blue-500'
+                      : 'bg-space-800/50 text-gray-300 border-gray-700 hover:bg-space-700/50'
+                  }`}
+                >
+                  Publications
+                </button>
+                <button
+                  onClick={() => setActiveCategory('researchareas')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${
+                    activeCategory === 'researchareas'
+                      ? 'bg-blue-600 text-white border-blue-500'
+                      : 'bg-space-800/50 text-gray-300 border-gray-700 hover:bg-space-700/50'
+                  }`}
+                >
+                  Research Areas
+                </button>
+              </div>
             </motion.div>
 
             {/* Controls */}
@@ -458,7 +708,7 @@ const KnowledgeGraph = () => {
                 </div>
               </div>
 
-              {graphLoading ? (
+              {(paperFromState ? paperGraphLoading : graphLoading) ? (
                 <div className="flex justify-center py-12">
                   <LoadingSpinner />
                 </div>
@@ -471,26 +721,38 @@ const KnowledgeGraph = () => {
                     className="border border-gray-700/50 rounded-lg"
                   />
                   
-                  {/* Legend */}
+                  {/* Legend (dynamic) */}
                   <div className="absolute top-4 right-4 bg-space-800/80 backdrop-blur-sm rounded-lg p-4 border border-gray-700/50">
-                    <h4 className="text-sm font-semibold text-white mb-2">Node Types</h4>
+                    <h4 className="text-sm font-semibold text-white mb-2">Legend</h4>
                     <div className="space-y-2 text-xs">
-                      <div className="flex items-center space-x-2">
-                        <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
-                        <span className="text-gray-300">Research Papers</span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-                        <span className="text-gray-300">Authors</span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <div className="w-3 h-3 bg-purple-500 rounded-full"></div>
-                        <span className="text-gray-300">Research Areas</span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>
-                        <span className="text-gray-300">Organisms</span>
-                      </div>
+                      {activeCategory === 'authors' && (
+                        <>
+                          <div className="flex items-center space-x-2"><div className="w-3 h-3 bg-[#22c55e] rounded-full"></div><span className="text-gray-300">Authors Center</span></div>
+                          <div className="flex items-center space-x-2"><div className="w-3 h-3 bg-[#0ea5e9] rounded-full"></div><span className="text-gray-300">Author</span></div>
+                          <div className="flex items-center space-x-2"><div className="w-3 h-3 bg-[#8b5cf6] rounded-full"></div><span className="text-gray-300">Paper</span></div>
+                        </>
+                      )}
+                      {activeCategory === 'publications' && (
+                        <>
+                          <div className="flex items-center space-x-2"><div className="w-3 h-3 bg-[#10b981] rounded-full"></div><span className="text-gray-300">Publications Center</span></div>
+                          <div className="flex items-center space-x-2"><div className="w-3 h-3 bg-[#22d3ee] rounded-full"></div><span className="text-gray-300">Publication</span></div>
+                          <div className="flex items-center space-x-2"><div className="w-3 h-3 bg-[#8b5cf6] rounded-full"></div><span className="text-gray-300">Paper</span></div>
+                        </>
+                      )}
+                      {activeCategory === 'researchareas' && (
+                        <>
+                          <div className="flex items-center space-x-2"><div className="w-3 h-3 bg-[#f59e0b] rounded-full"></div><span className="text-gray-300">Research Areas Center</span></div>
+                          <div className="flex items-center space-x-2"><div className="w-3 h-3 bg-[#fde047] rounded-full"></div><span className="text-gray-300">Research Area</span></div>
+                        </>
+                      )}
+                      {!['authors','publications','researchareas'].includes(activeCategory) && (
+                        <>
+                          <div className="flex items-center space-x-2"><div className="w-3 h-3 bg-blue-500 rounded-full"></div><span className="text-gray-300">Paper Title</span></div>
+                          <div className="flex items-center space-x-2"><div className="w-3 h-3 bg-green-500 rounded-full"></div><span className="text-gray-300">Publication</span></div>
+                          <div className="flex items-center space-x-2"><div className="w-3 h-3 bg-yellow-500 rounded-full"></div><span className="text-gray-300">Research Area</span></div>
+                          <div className="flex items-center space-x-2"><div className="w-3 h-3 bg-purple-500 rounded-full"></div><span className="text-gray-300">Keywords</span></div>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>

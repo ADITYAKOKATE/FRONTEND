@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { useQuery } from 'react-query';
 import { 
@@ -12,13 +12,16 @@ import {
   Eye,
   Building
 } from 'lucide-react';
-import { papersAPI } from '../services/api';
+import { papersAPI, dashboardAPI } from '../services/api';
 import Sidebar from '../components/Sidebar';
 import Header from '../components/Header';
 import { useLanguage } from '../contexts/LanguageContext';
 
 const Dashboard = () => {
   const { t } = useLanguage();
+  const tlContainerRef = useRef();
+  const [tlWidth, setTlWidth] = useState(700);
+  const [tooltip, setTooltip] = useState(null); // { x, y, year, count }
   const [weather, setWeather] = useState({
     temperature: 22,
     humidity: 65,
@@ -41,12 +44,21 @@ const Dashboard = () => {
     }
   );
 
-  // Fetch papers for timeline
-  const { data: papersData } = useQuery(
-    'papers-timeline',
-    () => papersAPI.getPapers({ limit: 1000 }),
+  // Fetch research timeline years/counts from backend
+  const { data: yearsData, isLoading: yearsLoading } = useQuery(
+    'dashboard-years',
+    dashboardAPI.getYears,
     {
-      staleTime: 10 * 60 * 1000, // 10 minutes
+      staleTime: 10 * 60 * 1000,
+    }
+  );
+
+  // Fetch top viewed papers for sidebar card list
+  const { data: topViewedData, isLoading: topViewedLoading } = useQuery(
+    'dashboard-topviewed',
+    dashboardAPI.getTopViewed,
+    {
+      staleTime: 10 * 60 * 1000,
     }
   );
 
@@ -80,27 +92,41 @@ const Dashboard = () => {
 
   // Process timeline data
   const timelineData = React.useMemo(() => {
-    if (!papersData?.papers) return [];
-    
-    const yearCounts = {};
-    papersData.papers.forEach(paper => {
-      const year = new Date(paper.publicationDate).getFullYear();
-      yearCounts[year] = (yearCounts[year] || 0) + 1;
-    });
-    
-    return Object.entries(yearCounts)
-      .map(([year, count]) => ({ year: parseInt(year), count }))
+    const arr = yearsData?.data?.years_list || [];
+    // years_list: List<Integer[]> => each [year, count]
+    return arr
+      .map((tuple) => ({ year: Number(tuple[0]), count: Number(tuple[1]) }))
+      .filter(d => !Number.isNaN(d.year) && !Number.isNaN(d.count))
       .sort((a, b) => a.year - b.year);
-  }, [papersData]);
+  }, [yearsData]);
+
+  // Observe timeline container width for responsiveness
+  useEffect(() => {
+    const el = tlContainerRef.current;
+    if (!el) return;
+    const update = () => setTlWidth(Math.max(320, el.clientWidth));
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    window.addEventListener('resize', update);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', update);
+    };
+  }, []);
 
   // Process most visited papers (simulated)
   const mostVisitedPapers = React.useMemo(() => {
-    if (!papersData?.papers) return [];
-    
-    return papersData.papers
-      .sort((a, b) => (b.citationCount || 0) - (a.citationCount || 0))
-      .slice(0, 5);
-  }, [papersData]);
+    const arr = topViewedData?.data?.top_viewed || [];
+    // backend returns List<String[]> where each [title, url]
+    return arr.slice(0, 5).map((tuple, idx) => ({
+      _id: `${idx}-${tuple[0]}`,
+      title: tuple[0],
+      url: tuple[1],
+      citationCount: undefined,
+      impactScore: undefined,
+    }));
+  }, [topViewedData]);
 
   return (
     <div className="min-h-screen bg-space-900 flex">
@@ -200,21 +226,92 @@ const Dashboard = () => {
                   <TrendingUp className="w-5 h-5 mr-2 text-blue-400" />
                   {t('researchTimeline')}
                 </h2>
-                <div className="h-64 flex items-end justify-between space-x-2">
-                  {timelineData.map((item, index) => (
-                    <div key={item.year} className="flex flex-col items-center space-y-2">
-                      <div 
-                        className="bg-blue-500 rounded-t-lg transition-all duration-300 hover:bg-blue-400"
-                        style={{ 
-                          height: `${(item.count / Math.max(...timelineData.map(d => d.count))) * 200}px`,
-                          width: '20px'
-                        }}
-                      />
-                      <span className="text-xs text-gray-400">{item.year}</span>
-                      <span className="text-xs text-gray-300">{item.count}</span>
-              </div>
-                  ))}
-                </div>
+                {yearsLoading ? (
+                  <div className="h-64 flex items-center justify-center text-gray-400">Loading timeline...</div>
+                ) : (
+                  <div ref={tlContainerRef} className="h-64 relative">
+                    {(() => {
+                      const padding = { top: 10, right: 20, bottom: 24, left: 32 };
+                      const width = tlWidth;
+                      const height = 256;
+                      const innerW = width - padding.left - padding.right;
+                      const innerH = height - padding.top - padding.bottom;
+                      const maxCount = Math.max(1, ...timelineData.map(d => d.count));
+                      const minYear = timelineData.length ? timelineData[0].year : 0;
+                      const maxYear = timelineData.length ? timelineData[timelineData.length - 1].year : 1;
+                      const yearSpan = Math.max(1, maxYear - minYear);
+                      const xFor = (year) => padding.left + ((year - minYear) / yearSpan) * innerW;
+                      const yFor = (count) => padding.top + innerH - (count / maxCount) * innerH;
+                      const linePoints = timelineData.map(d => `${xFor(d.year)},${yFor(d.count)}`).join(' ');
+                      const areaPoints = `${padding.left},${padding.top + innerH} ${linePoints} ${padding.left + innerW},${padding.top + innerH}`;
+                      return (
+                        <>
+                          <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full">
+                            <defs>
+                              <linearGradient id="tl-gradient" x1="0" x2="0" y1="0" y2="1">
+                                <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.35" />
+                                <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
+                              </linearGradient>
+                            </defs>
+                            {/* Axes (simple ticks) */}
+                            <g>
+                              {[0, 0.25, 0.5, 0.75, 1].map((t, i) => {
+                                const y = yFor(maxCount * t);
+                                const val = Math.round(maxCount * t);
+                                return (
+                                  <g key={i}>
+                                    <line x1={padding.left} x2={padding.left + innerW} y1={y} y2={y} stroke="#334155" strokeDasharray="4 4" />
+                                    <text x={8} y={y + 4} fill="#94a3b8" fontSize="10">{val}</text>
+                                  </g>
+                                );
+                              })}
+                              {timelineData.map((d) => (
+                                <text key={d.year} x={xFor(d.year)} y={height - 4} fill="#94a3b8" fontSize="10" textAnchor="middle">{d.year}</text>
+                              ))}
+                            </g>
+                            {/* Area under curve */}
+                            <polygon points={areaPoints} fill="url(#tl-gradient)" />
+                            {/* Line */}
+                            <polyline points={linePoints} fill="none" stroke="#3b82f6" strokeWidth="2" />
+                            {/* Points with hover */}
+                            {timelineData.map((d) => (
+                              <circle
+                                key={d.year}
+                                cx={xFor(d.year)}
+                                cy={yFor(d.count)}
+                                r={4}
+                                fill="#60a5fa"
+                                stroke="#0ea5e9"
+                                strokeWidth="1"
+                                onMouseEnter={(e) => {
+                                  const rect = e.currentTarget.ownerSVGElement.getBoundingClientRect();
+                                  const cx = xFor(d.year);
+                                  const cy = yFor(d.count);
+                                  setTooltip({
+                                    x: (cx / width) * rect.width,
+                                    y: (cy / height) * rect.height,
+                                    year: d.year,
+                                    count: d.count,
+                                  });
+                                }}
+                                onMouseLeave={() => setTooltip(null)}
+                              />
+                            ))}
+                          </svg>
+                          {tooltip && (
+                            <div
+                              className="absolute bg-space-800/90 border border-gray-700 text-gray-200 text-xs px-2 py-1 rounded shadow"
+                              style={{ left: tooltip.x + 8, top: Math.max(0, tooltip.y - 36) }}
+                            >
+                              <div className="font-semibold">{tooltip.year}</div>
+                              <div>{tooltip.count} papers</div>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </div>
+                )}
             </motion.div>
 
               {/* Most Visited Papers */}
@@ -229,7 +326,7 @@ const Dashboard = () => {
                   {t('mostVisitedPapers')}
                 </h2>
                 <div className="space-y-4">
-                  {mostVisitedPapers.map((paper, index) => (
+                  {(topViewedLoading ? [] : mostVisitedPapers).map((paper, index) => (
                     <div key={paper._id} className="flex items-center justify-between p-3 bg-space-700/30 rounded-lg">
                       <div className="flex items-center space-x-3">
                         <div className="w-8 h-8 bg-blue-500/20 rounded-lg flex items-center justify-center">
@@ -237,12 +334,15 @@ const Dashboard = () => {
               </div>
                         <div>
                           <p className="text-sm font-medium text-white truncate max-w-xs">{paper.title}</p>
-                          <p className="text-xs text-gray-400">{paper.citationCount || 0} citations</p>
+                          {paper.citationCount !== undefined && (
+                            <p className="text-xs text-gray-400">{paper.citationCount || 0} citations</p>
+                          )}
                         </div>
                           </div>
                       <div className="text-right">
-                        <p className="text-sm text-gray-300">{paper.impactScore?.toFixed(1) || '0.0'}</p>
-                        <p className="text-xs text-gray-400">Impact</p>
+                        {paper.url && (
+                          <a href={paper.url} target="_blank" rel="noreferrer" className="text-xs text-blue-400 hover:underline">Open</a>
+                        )}
                       </div>
                         </div>
                           ))}

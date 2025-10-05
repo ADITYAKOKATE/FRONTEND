@@ -66,11 +66,29 @@ export const searchAPI = {
   
   // Get filter options
   getFilters: () => api.get('/search/filters'),
+  
+  // Get similar papers by search term
+  getSimilar: (term) => api.get(`/search/similar/${encodeURIComponent(term)}`),
+  
+  // Get a paper card by ID
+  getPaperCard: (id) => api.get(`/search/getpaper/${id}`),
 };
 
 export const insightsAPI = {
   // Get knowledge graph data
   getKnowledgeGraph: () => api.get('/insights/knowledge-graph'),
+  
+  // Get specific paper knowledge graph
+  getPaperKnowledgeGraph: (paperId) => api.get(`/knowledgegraph/paper/${paperId}`),
+  
+  // Get authors with their papers knowledge graph
+  getAuthorsKnowledgeGraph: () => api.get('/knowledgegraph/authors'),
+  
+  // Get publications with their papers knowledge graph
+  getPublicationsKnowledgeGraph: () => api.get('/knowledgegraph/publications'),
+  
+  // Get research areas with counts
+  getResearchAreasKnowledge: () => api.get('/knowledgegraph/researcharea'),
   
   // Get research trends
   getTrends: (params = {}) => api.get('/insights/trends', { params }),
@@ -100,6 +118,14 @@ export const exportAPI = {
   exportSummaries: (data) => api.post('/export/summaries', data, {
     responseType: 'blob',
   }),
+};
+
+// Dashboard endpoints
+export const dashboardAPI = {
+  // Get years and counts for research timeline
+  getYears: () => api.get('/dashboard/years'),
+  // Get top viewed papers list
+  getTopViewed: () => api.get('/dashboard/topviewed'),
 };
 
 // Utility functions
