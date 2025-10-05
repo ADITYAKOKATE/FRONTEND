@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'https://nasaspaceapps-2.onrender.com';
+const API_BASE_URL = 'https://nasaspaceapps-av71.onrender.com';
 
 // Create axios instance
 const api = axios.create({
