@@ -56,15 +56,6 @@ const Sidebar = () => {
       color: 'text-orange-400',
       bgColor: 'bg-orange-500/10',
       borderColor: 'border-orange-500/20'
-    },
-    {
-      id: '/ai-insights',
-      label: t('aiInsights'),
-      icon: <Brain className="w-5 h-5" />,
-      path: '/ai-insights',
-      color: 'text-pink-400',
-      bgColor: 'bg-pink-500/10',
-      borderColor: 'border-pink-500/20'
     }
   ];
 

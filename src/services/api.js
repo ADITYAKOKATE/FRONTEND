@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'https://nasaspaceapps-9iog.onrender.com';
+const API_BASE_URL = 'https://nasaspaceapps-z2mg.onrender.com';
 
 // Create axios instance
 const api = axios.create({
@@ -126,6 +126,15 @@ export const dashboardAPI = {
   getYears: () => api.get('/dashboard/years'),
   // Get top viewed papers list
   getTopViewed: () => api.get('/dashboard/topviewed'),
+};
+
+// Chatbot endpoints
+export const chatAPI = {
+  startSession: (paperId) => api.get(`/chat/start/${paperId}`),
+  sendMessage: (sessionId, message) => api.post(`/chat/${sessionId}`, message, {
+    headers: { 'Content-Type': 'text/plain' },
+  }),
+  clearSession: (sessionId) => api.get(`/chat/clearmemory/${sessionId}`),
 };
 
 // Utility functions

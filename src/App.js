@@ -4,7 +4,6 @@ import LandingPage from './pages/LandingPage';
 import Dashboard from './pages/Dashboard';
 import ResearchPapers from './pages/ResearchPapers';
 import KnowledgeGraph from './pages/KnowledgeGraph';
-import AIInsights from './pages/AIInsights';
 import PaperDetail from './pages/PaperDetail';
 import NotFound from './pages/NotFound';
 import SpaceChatbot from './components/SpaceChatbot';
@@ -21,7 +20,7 @@ function App() {
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/research-papers" element={<ResearchPapers />} />
             <Route path="/knowledge-graph" element={<KnowledgeGraph />} />
-            <Route path="/ai-insights" element={<AIInsights />} />
+            {/* AI Insights route removed */}
             <Route path="/paper/:id" element={<PaperDetail />} />
             <Route path="*" element={<NotFound />} />
           </Routes>

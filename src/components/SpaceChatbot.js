@@ -11,6 +11,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
+import { chatAPI } from '../services/api';
 
 const SpaceChatbot = () => {
   const { t, currentLanguage } = useLanguage();
@@ -19,6 +20,8 @@ const SpaceChatbot = () => {
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [sessionId, setSessionId] = useState(null);
+  const [paperId, setPaperId] = useState(null);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -65,12 +68,14 @@ const SpaceChatbot = () => {
     }
   }, [isOpen]);
 
-  // Listen for external open events with an optional seeded message
+  // Listen for external open events with optional seeded message and paper context
   useEffect(() => {
     const handler = (e) => {
       setIsOpen(true);
       setIsMinimized(false);
       const seed = e?.detail?.message;
+      const pid = e?.detail?.paperId;
+      if (pid) setPaperId(pid);
       if (seed) {
         setInputValue(seed);
       }
@@ -151,18 +156,36 @@ const SpaceChatbot = () => {
     setInputValue('');
     setIsTyping(true);
 
-    // Simulate typing delay
-    setTimeout(() => {
+    try {
+      // Ensure session
+      let sid = sessionId;
+      if (!sid) {
+        const startRes = await chatAPI.startSession(paperId || 0);
+        sid = startRes?.data?.sessionId;
+        if (sid) setSessionId(sid);
+      }
+
+      // Send message
+      const chatRes = await chatAPI.sendMessage(sid, userMessage.text);
+      const reply = chatRes?.data?.reply || getBotResponse(userMessage.text);
       const botResponse = {
         id: Date.now() + 1,
-        text: getBotResponse(inputValue),
+        text: reply,
         sender: 'bot',
         timestamp: new Date()
       };
-      
       setMessages(prev => [...prev, botResponse]);
+    } catch (e) {
+      const errResponse = {
+        id: Date.now() + 1,
+        text: 'Sorry, I could not reach the AI service. Please try again later.',
+        sender: 'bot',
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, errResponse]);
+    } finally {
       setIsTyping(false);
-    }, 1000 + Math.random() * 1000);
+    }
   };
 
   const handleKeyPress = (e) => {

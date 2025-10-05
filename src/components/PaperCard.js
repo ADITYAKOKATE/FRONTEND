@@ -39,7 +39,7 @@ const PaperCard = ({ paper, viewMode = 'grid', onOpenKnowledgeGraph }) => {
   const askAIAboutPaper = (e) => {
     e.stopPropagation();
     const message = `Tell me about this paper: ${paper?.title || ''}`.trim();
-    window.dispatchEvent(new CustomEvent('open-space-chatbot', { detail: { message } }));
+    window.dispatchEvent(new CustomEvent('open-space-chatbot', { detail: { message, paperId: paper?.paper_id } }));
   };
 
   const getYear = (p) => {
